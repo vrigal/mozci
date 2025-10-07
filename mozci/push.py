@@ -1443,7 +1443,8 @@ class Push:
     def identify_permanent_failures(self, retriggers_count=5, queue_prefix="") -> None:
         """
         Retrigger failed test tasks `retriggers_count` times to identify the permanent failures.
-        Only tasks with a Task Queue ID starting by the given prefix will be retriggered and classified.
+        Only tasks with a Task Queue ID starting by the given prefix will be retriggered.
+        Failures that are not considered permanent are backfilled to identify the push which caused the regression.
         """
         failures_to_retrigger = [
             task
@@ -1463,10 +1464,34 @@ class Push:
             ]
             to_retrigger = retriggers_count - len(retriggers)
             if to_retrigger <= 0:
-                # TODO: Analyze the result of the retriggers to classify between backfills and permanent failures
+                # All tasks have been retriggered, check the results
+                self.backfill_new_test_failure(failure, retriggers)
                 continue
             logger.info(f"Starting {to_retrigger} retriggers for task {failure.label}")
             failure.retrigger(self, times=to_retrigger)
+
+    def backfill_new_test_failure(self, failure: Task, retriggers: list[Task]) -> bool:
+        """Analyze the result of the test retriggers to classify between backfills and permanent failures"""
+
+        if any(
+            retrigger.state in ("unscheduled", "pending", "running")
+            for retrigger in retriggers
+        ):
+            logger.warning(
+                f"Some retrigger did not finished for task {failure.label}, skipping."
+            )
+            return False
+
+        # Most retriggers succeeded -> intermittent ?
+        retriggers_with_similar_issue = [
+            retrigger
+            for retrigger in retriggers
+            # TODO: compare
+            if False
+        ]
+        # All retriggers failed or some completed but 2 have the same test failure
+        # -> Detect if the issue is new: find the previous push which ran the same test manifest (if available else the same task) for the same operating system and configuration.
+        previous_push = None
 
     def classify(
         self,
